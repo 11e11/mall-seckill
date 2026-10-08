@@ -13,6 +13,7 @@ import org.springframework.dao.DuplicateKeyException;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -51,6 +52,7 @@ class InventoryFlowServiceTest {
         verify(mapper).insert(captor.capture());
         InventoryFlow flow = captor.getValue();
         assertTrue(flow.getFlowKey().startsWith("ORDER_FREEZE"));
+        assertEquals("PRODUCT", flow.getInventoryType());
         assertTrue(flow.getCreateTime() != null);
         assertTrue(flow.getUpdateTime() != null);
     }

@@ -41,6 +41,21 @@ public class InventoryFlow extends ShopBaseEntity implements Serializable {
     private String bizId;
 
     /**
+     * 库存类型：PRODUCT 普通库存，SECKILL 秒杀活动库存。
+     */
+    private String inventoryType;
+
+    /**
+     * 活动 ID，普通库存流水为空。
+     */
+    private Long activityId;
+
+    /**
+     * 活动 SKU ID，普通库存流水为空。
+     */
+    private Long activitySkuId;
+
+    /**
      * 商品 ID。
      */
     private Long goodsId;

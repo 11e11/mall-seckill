@@ -7,13 +7,17 @@ package com.wayn.domain.api.inventory.service;
  * @param flowKey 业务唯一流水键
  * @param bizType 业务类型
  * @param bizId 业务 ID
+ * @param inventoryType 库存类型
+ * @param activityId 活动 ID
+ * @param activitySkuId 活动 SKU ID
  * @param goodsId 商品 ID
  * @param productId 商品货品 ID
  * @param changeType 库存变更类型
  * @param changeNumber 库存变更数量
  * @param remark 流水备注
  */
-public record InventoryFlowCreateCommand(String flowKey, String bizType, String bizId, Long goodsId,
+public record InventoryFlowCreateCommand(String flowKey, String bizType, String bizId, String inventoryType,
+                                         Long activityId, Long activitySkuId, Long goodsId,
                                          Long productId, String changeType, Integer changeNumber, String remark) {
 
     /**
@@ -33,6 +37,9 @@ public record InventoryFlowCreateCommand(String flowKey, String bizType, String 
         private String flowKey;
         private String bizType;
         private String bizId;
+        private String inventoryType;
+        private Long activityId;
+        private Long activitySkuId;
         private Long goodsId;
         private Long productId;
         private String changeType;
@@ -69,6 +76,30 @@ public record InventoryFlowCreateCommand(String flowKey, String bizType, String 
          */
         public Builder bizId(String bizId) {
             this.bizId = bizId;
+            return this;
+        }
+
+        /**
+         * 设置库存归属类型。
+         */
+        public Builder inventoryType(String inventoryType) {
+            this.inventoryType = inventoryType;
+            return this;
+        }
+
+        /**
+         * 设置活动 ID。
+         */
+        public Builder activityId(Long activityId) {
+            this.activityId = activityId;
+            return this;
+        }
+
+        /**
+         * 设置活动 SKU ID。
+         */
+        public Builder activitySkuId(Long activitySkuId) {
+            this.activitySkuId = activitySkuId;
             return this;
         }
 
@@ -133,8 +164,8 @@ public record InventoryFlowCreateCommand(String flowKey, String bizType, String 
          * @return 库存流水创建命令
          */
         public InventoryFlowCreateCommand build() {
-            return new InventoryFlowCreateCommand(flowKey, bizType, bizId, goodsId, productId, changeType,
-                    changeNumber, remark);
+            return new InventoryFlowCreateCommand(flowKey, bizType, bizId, inventoryType, activityId,
+                    activitySkuId, goodsId, productId, changeType, changeNumber, remark);
         }
     }
 }

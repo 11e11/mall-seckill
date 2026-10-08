@@ -65,6 +65,9 @@ class SeckillOrderCreateSupportTest {
     private OrderStockSupport orderStockSupport;
 
     @Mock
+    private SeckillInventoryFlowSupport seckillInventoryFlowSupport;
+
+    @Mock
     private SeckillOrderMessageSupport seckillOrderMessageSupport;
 
     @Mock

@@ -4,9 +4,11 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wayn.domain.api.promotion.entity.SeckillSku;
 import com.wayn.domain.api.promotion.service.ISeckillSkuService;
 import com.wayn.domain.api.trade.entity.OrderActivityRelation;
+import com.wayn.domain.api.trade.entity.Order;
 import com.wayn.domain.api.trade.enums.OrderActivityInventoryStatusEnum;
 import com.wayn.domain.api.trade.enums.OrderActivityTypeEnum;
 import com.wayn.domain.api.trade.service.IOrderActivityRelationService;
+import com.wayn.domain.api.trade.mapper.OrderMapper;
 import com.wayn.util.enums.ReturnCodeEnum;
 import com.wayn.util.exception.BusinessException;
 import lombok.AllArgsConstructor;
@@ -27,6 +29,8 @@ public class SeckillInventoryConfirmSupport {
 
     private final IOrderActivityRelationService orderActivityRelationService;
     private final ISeckillSkuService seckillSkuService;
+    private final OrderMapper orderMapper;
+    private final SeckillInventoryFlowSupport seckillInventoryFlowSupport;
 
     /**
      * 按订单 ID 确认秒杀活动库存。
@@ -44,17 +48,22 @@ public class SeckillInventoryConfirmSupport {
         if (CollectionUtils.isEmpty(relations)) {
             return;
         }
+        Order order = orderMapper.selectById(orderId);
+        if (order == null || order.getOrderSn() == null) {
+            throw new BusinessException(ReturnCodeEnum.ORDER_SUBMIT_ERROR, "秒杀订单不存在");
+        }
         for (OrderActivityRelation relation : relations) {
-            confirmSingleRelation(relation);
+            confirmSingleRelation(order.getOrderSn(), relation);
         }
     }
 
     /**
      * 确认单条订单活动关联的秒杀库存。
      *
+     * @param orderSn 订单号
      * @param relation 订单活动关联
      */
-    private void confirmSingleRelation(OrderActivityRelation relation) {
+    private void confirmSingleRelation(String orderSn, OrderActivityRelation relation) {
         Integer number = relation.getNumber() == null ? 0 : relation.getNumber();
         if (relation.getId() == null || relation.getActivitySkuId() == null || number <= 0) {
             return;
@@ -77,5 +86,6 @@ public class SeckillInventoryConfirmSupport {
         if (!confirmed) {
             throw new BusinessException(ReturnCodeEnum.ORDER_SUBMIT_ERROR, "秒杀活动库存确认失败");
         }
+        seckillInventoryFlowSupport.recordConfirm(orderSn, relation);
     }
 }

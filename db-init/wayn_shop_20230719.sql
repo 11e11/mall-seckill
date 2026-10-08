@@ -2760,6 +2760,9 @@ CREATE TABLE `shop_inventory_flow` (
   `flow_key` varchar(128) NOT NULL COMMENT '业务唯一流水键',
   `biz_type` varchar(32) NOT NULL COMMENT '业务类型',
   `biz_id` varchar(64) NOT NULL COMMENT '业务 ID',
+  `inventory_type` varchar(16) NOT NULL DEFAULT 'PRODUCT' COMMENT '库存类型：PRODUCT 普通库存，SECKILL 秒杀活动库存',
+  `activity_id` bigint DEFAULT NULL COMMENT '活动 ID',
+  `activity_sku_id` bigint DEFAULT NULL COMMENT '活动 SKU ID',
   `goods_id` bigint DEFAULT NULL COMMENT '商品 ID',
   `product_id` bigint NOT NULL COMMENT '商品货品 ID',
   `change_type` varchar(32) NOT NULL COMMENT '库存变更类型',
@@ -2770,7 +2773,8 @@ CREATE TABLE `shop_inventory_flow` (
   PRIMARY KEY (`id`) USING BTREE,
   UNIQUE KEY `uk_inventory_flow_key` (`flow_key`) USING BTREE,
   KEY `idx_inventory_flow_biz` (`biz_type`, `biz_id`) USING BTREE,
-  KEY `idx_inventory_flow_product` (`product_id`, `change_type`) USING BTREE
+  KEY `idx_inventory_flow_product` (`product_id`, `change_type`) USING BTREE,
+  KEY `idx_inventory_flow_activity` (`inventory_type`, `activity_sku_id`, `change_type`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci COMMENT = '库存流水表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------

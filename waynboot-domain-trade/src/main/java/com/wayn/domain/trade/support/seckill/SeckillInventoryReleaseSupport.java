@@ -27,14 +27,16 @@ public class SeckillInventoryReleaseSupport {
     private final ISeckillSkuService seckillSkuService;
     private final IOrderActivityRelationService orderActivityRelationService;
     private final RedisCache redisCache;
+    private final SeckillInventoryFlowSupport seckillInventoryFlowSupport;
 
     /**
      * 释放超时未支付订单占用的秒杀活动库存。
      *
      * @param relation 订单活动关联
+     * @param orderSn 订单号
      */
     @Transactional(rollbackFor = Exception.class)
-    public void releaseTimeoutStock(OrderActivityRelation relation) {
+    public void releaseTimeoutStock(OrderActivityRelation relation, String orderSn) {
         if (relation == null || relation.getActivitySkuId() == null || relation.getActivityId() == null
                 || relation.getGoodsId() == null || relation.getUserId() == null) {
             return;
@@ -59,6 +61,7 @@ public class SeckillInventoryReleaseSupport {
             if (!released) {
                 throw new BusinessException(ReturnCodeEnum.ORDER_SUBMIT_ERROR, "秒杀活动库存释放失败");
             }
+            seckillInventoryFlowSupport.recordRelease(orderSn, relation);
             // Redis 秒杀库存是入口快照，只能按释放数量递增，不能覆盖当前库存值。
             redisCache.incrementCacheObject(SeckillRedisKeySupport.stockKey(relation.getActivitySkuId()), number);
         }

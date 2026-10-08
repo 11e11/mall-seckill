@@ -50,7 +50,7 @@ class SeckillOrderTimeoutSupportTest {
 
         seckillOrderTimeoutSupport.closeUnpaidOrder("S001");
 
-        verify(seckillInventoryReleaseSupport).releaseTimeoutStock(relation);
+        verify(seckillInventoryReleaseSupport).releaseTimeoutStock(relation, "S001");
         verify(seckillResultSupport).markClosed("S001");
     }
 
@@ -66,6 +66,6 @@ class SeckillOrderTimeoutSupportTest {
 
         seckillOrderTimeoutSupport.closeUnpaidOrder("S001");
 
-        verify(seckillInventoryReleaseSupport, never()).releaseTimeoutStock(relation);
+        verify(seckillInventoryReleaseSupport, never()).releaseTimeoutStock(relation, "S001");
     }
 }

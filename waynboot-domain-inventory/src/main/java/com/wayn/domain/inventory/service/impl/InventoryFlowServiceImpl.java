@@ -1,6 +1,7 @@
 package com.wayn.domain.inventory.service.impl;
 
 import com.wayn.domain.api.inventory.entity.InventoryFlow;
+import com.wayn.domain.api.inventory.enums.InventoryTypeEnum;
 import com.wayn.domain.api.inventory.mapper.InventoryFlowMapper;
 import com.wayn.domain.api.inventory.service.InventoryFlowCreateCommand;
 import com.wayn.domain.api.inventory.service.InventoryFlowService;
@@ -70,6 +71,9 @@ public class InventoryFlowServiceImpl implements InventoryFlowService {
         flow.setFlowKey(command.flowKey());
         flow.setBizType(command.bizType());
         flow.setBizId(command.bizId());
+        flow.setInventoryType(StringUtils.defaultIfBlank(command.inventoryType(), InventoryTypeEnum.PRODUCT.name()));
+        flow.setActivityId(command.activityId());
+        flow.setActivitySkuId(command.activitySkuId());
         flow.setGoodsId(command.goodsId());
         flow.setProductId(command.productId());
         flow.setChangeType(command.changeType());

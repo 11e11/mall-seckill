@@ -57,6 +57,7 @@ public class SeckillOrderCreateSupport {
     private final IGoodsProductService goodsProductService;
     private final ISeckillSkuService seckillSkuService;
     private final OrderStockSupport orderStockSupport;
+    private final SeckillInventoryFlowSupport seckillInventoryFlowSupport;
     private final SeckillOrderMessageSupport seckillOrderMessageSupport;
     private final SeckillResultSupport seckillResultSupport;
     private final RedisCache redisCache;
@@ -108,7 +109,7 @@ public class SeckillOrderCreateSupport {
 
         // 普通 SKU 冻结库存和库存流水仍是 MySQL 最终兜底，Redis 秒杀库存只负责入口削峰。
         orderStockSupport.freezeStock(message.getOrderSn(), List.of(cartSnapshot));
-        freezeSeckillActivityStock(sku.getId(), message.getNumber());
+        freezeSeckillActivityStock(message, sku);
 
         Order order = buildOrder(message, address, goodsPrice, freightPrice, actualPrice);
         if (orderMapper.insert(order) != 1) {
@@ -238,19 +239,22 @@ public class SeckillOrderCreateSupport {
     /**
      * 冻结秒杀活动库存。
      *
-     * @param activitySkuId 活动 SKU ID
-     * @param number 冻结数量
+     * @param message 秒杀下单消息
+     * @param sku 活动 SKU
      */
-    private void freezeSeckillActivityStock(Long activitySkuId, Integer number) {
+    private void freezeSeckillActivityStock(SeckillOrderSubmitMessage message, SeckillSku sku) {
+        Integer number = message.getNumber();
         boolean updated = seckillSkuService.update(Wrappers.lambdaUpdate(SeckillSku.class)
                 .setSql("available_stock = available_stock - " + number)
                 .setSql("locked_stock = locked_stock + " + number)
                 .set(SeckillSku::getUpdateTime, new Date())
-                .eq(SeckillSku::getId, activitySkuId)
+                .eq(SeckillSku::getId, sku.getId())
                 .ge(SeckillSku::getAvailableStock, number));
         if (!updated) {
             throw new BusinessException(ReturnCodeEnum.ORDER_SUBMIT_ERROR, "秒杀活动库存不足");
         }
+        seckillInventoryFlowSupport.recordFreeze(message.getOrderSn(), sku.getActivityId(), sku.getId(),
+                sku.getGoodsId(), sku.getProductId(), number);
     }
 
     /**

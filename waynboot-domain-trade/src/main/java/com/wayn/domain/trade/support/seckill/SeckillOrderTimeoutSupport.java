@@ -33,7 +33,7 @@ public class SeckillOrderTimeoutSupport {
         }
         boolean cancelled = orderCancellationSupport.cancel(orderSn, OrderStatusEnum.STATUS_AUTO_CANCEL);
         if (cancelled) {
-            seckillInventoryReleaseSupport.releaseTimeoutStock(relation);
+            seckillInventoryReleaseSupport.releaseTimeoutStock(relation, orderSn);
             seckillResultSupport.markClosed(orderSn);
         }
     }

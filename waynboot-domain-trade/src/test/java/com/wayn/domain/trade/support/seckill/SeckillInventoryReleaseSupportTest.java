@@ -33,6 +33,9 @@ class SeckillInventoryReleaseSupportTest {
     @Mock
     private RedisCache redisCache;
 
+    @Mock
+    private SeckillInventoryFlowSupport seckillInventoryFlowSupport;
+
     @InjectMocks
     private SeckillInventoryReleaseSupport seckillInventoryReleaseSupport;
 
@@ -60,8 +63,9 @@ class SeckillInventoryReleaseSupportTest {
         when(orderActivityRelationService.update(any())).thenReturn(true);
         when(seckillSkuService.update(any())).thenReturn(true);
 
-        seckillInventoryReleaseSupport.releaseTimeoutStock(relation);
+        seckillInventoryReleaseSupport.releaseTimeoutStock(relation, "S001");
 
+        verify(seckillInventoryFlowSupport).recordRelease("S001", relation);
         verify(redisCache).incrementCacheObject(SeckillRedisKeySupport.stockKey(10L), 2L);
         verify(redisCache).deleteObject(SeckillRedisKeySupport.userPurchaseKey(1L, 30L, 99L));
     }

@@ -8,6 +8,8 @@ public final class LocalMessageTopics {
 
     public static final String BIZ_TYPE_ORDER = "ORDER";
 
+    public static final String BIZ_TYPE_SECKILL_ORDER = "SECKILL_ORDER";
+
     public static final String ORDER_SUBMIT = "ORDER_SUBMIT";
 
     public static final String ORDER_UNPAID_DELAY = "ORDER_UNPAID_DELAY";
