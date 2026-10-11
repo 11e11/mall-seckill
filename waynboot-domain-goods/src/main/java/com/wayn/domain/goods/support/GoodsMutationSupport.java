@@ -50,6 +50,7 @@ public class GoodsMutationSupport {
     private final GoodsValidationSupport goodsValidationSupport;
     private final GoodsElasticSyncSupport goodsElasticSyncSupport;
     private final RedisCache redisCache;
+    private final GoodsIdBloomFilter goodsIdBloomFilter;
 
     /**
      * Spring 运行时构造器。
@@ -67,7 +68,8 @@ public class GoodsMutationSupport {
                                 IGoodsSpecificationService goodsSpecificationService,
                                 GoodsValidationSupport goodsValidationSupport,
                                 GoodsElasticSyncSupport goodsElasticSyncSupport,
-                                RedisCache redisCache) {
+                                RedisCache redisCache,
+                                GoodsIdBloomFilter goodsIdBloomFilter) {
         this.goodsMapper = goodsMapper;
         this.goodsProductService = goodsProductService;
         this.goodsAttributeService = goodsAttributeService;
@@ -75,6 +77,7 @@ public class GoodsMutationSupport {
         this.goodsValidationSupport = goodsValidationSupport;
         this.goodsElasticSyncSupport = goodsElasticSyncSupport;
         this.redisCache = redisCache;
+        this.goodsIdBloomFilter = goodsIdBloomFilter;
     }
 
     /**
@@ -92,7 +95,7 @@ public class GoodsMutationSupport {
                          IGoodsSpecificationService goodsSpecificationService,
                          GoodsValidationSupport goodsValidationSupport) {
         this(goodsMapper, goodsProductService, goodsAttributeService, goodsSpecificationService,
-                goodsValidationSupport, null, null);
+                goodsValidationSupport, null, null, null);
     }
 
     /**
@@ -138,6 +141,9 @@ public class GoodsMutationSupport {
         saveBatchIfPresent(specifications, goodsSpecificationService::saveBatch);
         saveBatchIfPresent(attributes, goodsAttributeService::saveBatch);
         saveBatchIfPresent(products, goodsProductService::saveBatch);
+        if (goodsIdBloomFilter != null) {
+            goodsIdBloomFilter.put(goods.getId());
+        }
         evictGoodsDetailCache(goods.getId());
     }
 

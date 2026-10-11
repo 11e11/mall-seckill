@@ -26,4 +26,14 @@ public class CacheConstants {
 
     public static final String ORDER_SN_INCR_KEY = CACHE_PREFIX + "order_sn_incr_key";
 
+    /**
+     * 商品 ID 布隆过滤器位图 key，Redisson RBloomFilter 存储，多实例共享。
+     */
+    public static final String GOODS_ID_BLOOM_FILTER = CACHE_PREFIX + "goods_id_bloom";
+
+    /**
+     * 布隆过滤器全量装载完成标记，位图存在但标记缺失时启动会重新全量装载。
+     */
+    public static final String GOODS_ID_BLOOM_FILTER_LOADED = CACHE_PREFIX + "goods_id_bloom_loaded";
+
 }

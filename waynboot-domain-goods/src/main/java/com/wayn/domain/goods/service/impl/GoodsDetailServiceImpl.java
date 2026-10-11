@@ -11,6 +11,7 @@ import com.wayn.domain.api.goods.service.IGoodsSpecificationService;
 import com.wayn.domain.api.goods.response.SpecificationVO;
 import com.wayn.domain.api.goods.response.GoodsDetailResponseVO;
 import com.wayn.data.redis.manager.RedisCache;
+import com.wayn.domain.goods.support.GoodsIdBloomFilter;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -25,7 +26,7 @@ import static com.wayn.data.redis.constant.RedisKeyEnum.GOODS_DETAIL_CACHE;
 
 /**
  * 商品详情查询服务。
- * 面向移动端高频详情读请求，优先读取 Redis 聚合缓存，缓存未命中时并发查询商品、规格、货品和属性后回填缓存。
+ * 面向移动端高频详情读请求，按 L1(Caffeine) -> BloomFilter -> Redis -> DB 读取商品聚合数据。
  */
 @Slf4j
 @Service
@@ -39,6 +40,7 @@ public class GoodsDetailServiceImpl implements IGoodsDetailService {
     private final IGoodsAttributeService iGoodsAttributeService;
     private final ThreadPoolTaskExecutor commonThreadPoolTaskExecutor;
     private final RedisCache redisCache;
+    private final GoodsIdBloomFilter goodsIdBloomFilter;
 
     /**
      * 获取商品详情聚合数据。
@@ -50,8 +52,16 @@ public class GoodsDetailServiceImpl implements IGoodsDetailService {
     @Override
     public GoodsDetailResponseVO getGoodsDetailData(Long goodsId) {
         String cacheKey = GOODS_DETAIL_CACHE.getKey(goodsId);
+        GoodsDetailResponseVO localCached = redisCache.getLocalCacheObject(cacheKey);
+        if (localCached != null) {
+            return localCached;
+        }
+        if (!goodsIdBloomFilter.mightContain(goodsId)) {
+            return emptyResponse();
+        }
         GoodsDetailResponseVO cached = redisCache.getCacheObject(cacheKey);
         if (cached != null) {
+            redisCache.setLocalCacheObject(cacheKey, cached);
             return cached;
         }
 
@@ -71,7 +81,11 @@ public class GoodsDetailServiceImpl implements IGoodsDetailService {
             responseVO.setProductList(productTask.get());
             responseVO.setSpecificationList(specificationTask.get());
             responseVO.setAttributes(attrTask.get());
-            redisCache.setCacheObject(cacheKey, responseVO, GOODS_DETAIL_CACHE.getExpireSecond());
+            if (responseVO.getInfo() != null) {
+                goodsIdBloomFilter.put(goodsId);
+                redisCache.setCacheObject(cacheKey, responseVO, GOODS_DETAIL_CACHE.getExpireSecond());
+                redisCache.setLocalCacheObject(cacheKey, responseVO);
+            }
             return responseVO;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -79,5 +93,13 @@ public class GoodsDetailServiceImpl implements IGoodsDetailService {
         } catch (ExecutionException e) {
             throw new RuntimeException("商品详情查询失败", e);
         }
+    }
+
+    private GoodsDetailResponseVO emptyResponse() {
+        GoodsDetailResponseVO responseVO = new GoodsDetailResponseVO();
+        responseVO.setProductList(List.of());
+        responseVO.setSpecificationList(List.of());
+        responseVO.setAttributes(List.of());
+        return responseVO;
     }
 }

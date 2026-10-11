@@ -11,6 +11,7 @@ import com.wayn.domain.api.goods.service.IGoodsSpecificationService;
 import com.wayn.domain.api.goods.response.SpecificationVO;
 import com.wayn.domain.api.goods.response.GoodsDetailResponseVO;
 import com.wayn.data.redis.manager.RedisCache;
+import com.wayn.domain.goods.support.GoodsIdBloomFilter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -42,23 +43,56 @@ class GoodsDetailServiceImplTest {
     private IGoodsAttributeService goodsAttributeService;
     @Mock
     private RedisCache redisCache;
+    @Mock
+    private GoodsIdBloomFilter goodsIdBloomFilter;
 
     /**
      * 验证商品详情缓存命中时不再访问数据库和线程池。
      */
     @Test
-    void getGoodsDetailDataReturnsCachedValueWithoutQueryingDatabase() {
+    void getGoodsDetailDataReturnsLocalCachedValueWithoutQueryingRedisOrDatabase() {
         ThreadPoolTaskExecutor executor = mock(ThreadPoolTaskExecutor.class);
         GoodsDetailServiceImpl service = new GoodsDetailServiceImpl(goodsService, goodsSpecificationService,
-                goodsProductService, goodsAttributeService, executor, redisCache);
+                goodsProductService, goodsAttributeService, executor, redisCache, goodsIdBloomFilter);
         GoodsDetailResponseVO cached = new GoodsDetailResponseVO();
+        when(redisCache.getLocalCacheObject(GOODS_DETAIL_CACHE.getKey(1L))).thenReturn(cached);
+
+        GoodsDetailResponseVO result = service.getGoodsDetailData(1L);
+
+        assertSame(cached, result);
+        verify(redisCache, never()).getCacheObject(GOODS_DETAIL_CACHE.getKey(1L));
+        verify(goodsService, never()).getById(1L);
+        verify(executor, never()).submit(any(FutureTask.class));
+    }
+
+    @Test
+    void getGoodsDetailDataRejectsDefinitelyMissingGoodsBeforeRedis() {
+        ThreadPoolTaskExecutor executor = mock(ThreadPoolTaskExecutor.class);
+        GoodsDetailServiceImpl service = new GoodsDetailServiceImpl(goodsService, goodsSpecificationService,
+                goodsProductService, goodsAttributeService, executor, redisCache, goodsIdBloomFilter);
+        when(goodsIdBloomFilter.mightContain(99L)).thenReturn(false);
+
+        GoodsDetailResponseVO result = service.getGoodsDetailData(99L);
+
+        org.junit.jupiter.api.Assertions.assertNull(result.getInfo());
+        verify(redisCache, never()).getCacheObject(GOODS_DETAIL_CACHE.getKey(99L));
+        verify(goodsService, never()).getById(99L);
+    }
+
+    @Test
+    void getGoodsDetailDataPromotesRedisValueToLocalCache() {
+        ThreadPoolTaskExecutor executor = mock(ThreadPoolTaskExecutor.class);
+        GoodsDetailServiceImpl service = new GoodsDetailServiceImpl(goodsService, goodsSpecificationService,
+                goodsProductService, goodsAttributeService, executor, redisCache, goodsIdBloomFilter);
+        GoodsDetailResponseVO cached = new GoodsDetailResponseVO();
+        when(goodsIdBloomFilter.mightContain(1L)).thenReturn(true);
         when(redisCache.getCacheObject(GOODS_DETAIL_CACHE.getKey(1L))).thenReturn(cached);
 
         GoodsDetailResponseVO result = service.getGoodsDetailData(1L);
 
         assertSame(cached, result);
+        verify(redisCache).setLocalCacheObject(GOODS_DETAIL_CACHE.getKey(1L), cached);
         verify(goodsService, never()).getById(1L);
-        verify(executor, never()).submit(any(FutureTask.class));
     }
 
     /**
@@ -68,13 +102,14 @@ class GoodsDetailServiceImplTest {
     void getGoodsDetailDataCachesDatabaseResult() {
         DirectThreadPoolTaskExecutor executor = new DirectThreadPoolTaskExecutor();
         GoodsDetailServiceImpl service = new GoodsDetailServiceImpl(goodsService, goodsSpecificationService,
-                goodsProductService, goodsAttributeService, executor, redisCache);
+                goodsProductService, goodsAttributeService, executor, redisCache, goodsIdBloomFilter);
         Goods goods = new Goods();
         goods.setId(2L);
         List<SpecificationVO> specifications = List.of(new SpecificationVO());
         List<GoodsProduct> products = List.of(new GoodsProduct());
         List<GoodsAttribute> attributes = List.of(new GoodsAttribute());
         when(redisCache.getCacheObject(GOODS_DETAIL_CACHE.getKey(2L))).thenReturn(null);
+        when(goodsIdBloomFilter.mightContain(2L)).thenReturn(true);
         when(goodsService.getById(2L)).thenReturn(goods);
         when(goodsSpecificationService.getSpecificationVOList(2L)).thenReturn(specifications);
         when(goodsProductService.list(org.mockito.ArgumentMatchers.<Wrapper<GoodsProduct>>any())).thenReturn(products);
@@ -84,6 +119,7 @@ class GoodsDetailServiceImplTest {
 
         verify(redisCache).setCacheObject(GOODS_DETAIL_CACHE.getKey(2L), result,
                 GOODS_DETAIL_CACHE.getExpireSecond());
+        verify(redisCache).setLocalCacheObject(GOODS_DETAIL_CACHE.getKey(2L), result);
         assertSame(goods, result.getInfo());
         assertSame(specifications, result.getSpecificationList());
         assertSame(products, result.getProductList());
