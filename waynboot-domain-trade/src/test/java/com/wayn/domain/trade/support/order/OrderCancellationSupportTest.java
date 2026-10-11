@@ -29,6 +29,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @ExtendWith(MockitoExtension.class)
 class OrderCancellationSupportTest {
@@ -117,6 +119,22 @@ class OrderCancellationSupportTest {
         verify(orderStatusLogService).recordSuccess(any());
         verify(orderStockSupport).releaseFrozenStockByOrderId(3L);
         verify(shopMemberCouponService).lambdaUpdate();
+    }
+
+    /** 秒杀库存回调只随成功关单在锁内事务执行。 */
+    @Test
+    void cancelRunsAdditionalWorkOnlyAfterSuccessfulStatusChange() {
+        Order order = newOrder(4L, "order-seckill-4", OrderStatusEnum.STATUS_CREATE);
+        mockLockExecution();
+        when(orderMapper.selectOne(any())).thenReturn(order);
+        when(orderMapper.update(any(), any())).thenReturn(0, 1);
+        mockCouponRollbackUpdate();
+        AtomicInteger calls = new AtomicInteger();
+
+        support.cancel(order.getOrderSn(), OrderStatusEnum.STATUS_AUTO_CANCEL, ignored -> calls.incrementAndGet());
+        assertEquals(0, calls.get());
+        support.cancel(order.getOrderSn(), OrderStatusEnum.STATUS_AUTO_CANCEL, ignored -> calls.incrementAndGet());
+        assertEquals(1, calls.get());
     }
 
     /**

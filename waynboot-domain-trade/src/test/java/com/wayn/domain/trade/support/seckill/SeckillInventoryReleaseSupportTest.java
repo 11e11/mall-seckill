@@ -1,12 +1,13 @@
 package com.wayn.domain.trade.support.seckill;
 
-import com.wayn.data.redis.manager.RedisCache;
+import com.wayn.domain.trade.outbox.LocalMessageCreateCommand;
+import com.wayn.domain.trade.outbox.LocalMessageService;
 import com.wayn.domain.api.common.MybatisPlusTableInfoTestHelper;
 import com.wayn.domain.api.promotion.entity.SeckillSku;
 import com.wayn.domain.api.promotion.service.ISeckillSkuService;
 import com.wayn.domain.api.trade.entity.OrderActivityRelation;
 import com.wayn.domain.api.trade.service.IOrderActivityRelationService;
-import com.wayn.domain.promotion.support.seckill.SeckillRedisKeySupport;
+import com.wayn.domain.api.outbox.service.LocalMessageTopics;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,6 +16,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.mockito.ArgumentMatchers.any;
+import org.mockito.ArgumentCaptor;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -31,7 +35,7 @@ class SeckillInventoryReleaseSupportTest {
     private IOrderActivityRelationService orderActivityRelationService;
 
     @Mock
-    private RedisCache redisCache;
+    private LocalMessageService localMessageService;
 
     @Mock
     private SeckillInventoryFlowSupport seckillInventoryFlowSupport;
@@ -48,10 +52,10 @@ class SeckillInventoryReleaseSupportTest {
     }
 
     /**
-     * 数据库活动库存释放成功后，Redis 秒杀库存快照必须按释放数量递增，不能覆盖当前值。
+     * 数据库活动库存释放成功后，只写可靠回补任务，不在事务中操作 Redis。
      */
     @Test
-    void releaseTimeoutStockIncrementsRedisStockWhenDatabaseReleaseSucceeded() {
+    void releaseTimeoutStockEnqueuesRedisRecoveryWhenDatabaseReleaseSucceeded() {
         OrderActivityRelation relation = new OrderActivityRelation();
         relation.setId(1L);
         relation.setActivitySkuId(10L);
@@ -66,7 +70,25 @@ class SeckillInventoryReleaseSupportTest {
         seckillInventoryReleaseSupport.releaseTimeoutStock(relation, "S001");
 
         verify(seckillInventoryFlowSupport).recordRelease("S001", relation);
-        verify(redisCache).incrementCacheObject(SeckillRedisKeySupport.stockKey(10L), 2L);
-        verify(redisCache).deleteObject(SeckillRedisKeySupport.userPurchaseKey(1L, 30L, 99L));
+        ArgumentCaptor<LocalMessageCreateCommand> command = ArgumentCaptor.forClass(LocalMessageCreateCommand.class);
+        verify(localMessageService).saveMessage(command.capture());
+        assertEquals(LocalMessageTopics.SECKILL_REDIS_RELEASE, command.getValue().topic());
+        assertEquals("SECKILL_REDIS_RELEASE:S001:10", command.getValue().messageKey());
+        assertEquals(2, SeckillRedisReleasePayload.fromJson(command.getValue().payload()).number());
+    }
+
+    @Test
+    void releaseTimeoutStockDoesNotEnqueueWhenRelationIsNoLongerLocked() {
+        OrderActivityRelation relation = new OrderActivityRelation();
+        relation.setId(1L);
+        relation.setActivitySkuId(10L);
+        relation.setActivityId(1L);
+        relation.setGoodsId(30L);
+        relation.setUserId(99L);
+        relation.setNumber(1);
+        when(orderActivityRelationService.update(any())).thenReturn(false);
+
+        assertThrows(RuntimeException.class, () -> seckillInventoryReleaseSupport.releaseTimeoutStock(relation, "S001"));
+        org.mockito.Mockito.verifyNoInteractions(localMessageService);
     }
 }

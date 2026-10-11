@@ -21,6 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.Date;
+import java.util.function.Consumer;
 import com.wayn.domain.inventory.support.OrderStockSupport;
 import com.wayn.domain.inventory.support.RedisStockPreDeductSupport;
 import com.wayn.domain.inventory.support.RedisStockSnapshotSupport;
@@ -86,11 +87,19 @@ public class OrderCancellationSupport {
      * @param targetStatus 目标关闭状态
      */
     public boolean cancel(String orderSn, OrderStatusEnum targetStatus) {
+        return cancel(orderSn, targetStatus, order -> {});
+    }
+
+    /**
+     * 在同一关单事务中执行调用方的数据库后置操作。
+     * 秒杀超时释放必须与订单关闭一起提交；回调异常会回滚整个事务。
+     */
+    public boolean cancel(String orderSn, OrderStatusEnum targetStatus, Consumer<Order> afterCancelInTransaction) {
         String lockKey = RedisKeyEnum.ORDER_UNPAID_KEY.getKey(orderSn);
         java.util.concurrent.atomic.AtomicBoolean cancelled = new java.util.concurrent.atomic.AtomicBoolean(false);
         boolean executed = tradeLockSupport.tryRunWithLock(lockKey, null,
                 () -> transactionTemplate.executeWithoutResult(status ->
-                        cancelled.set(doCancel(orderSn, targetStatus))));
+                        cancelled.set(doCancel(orderSn, targetStatus, afterCancelInTransaction))));
         if (!executed) {
             log.warn("订单编号：{} 获取取消锁失败", orderSn);
             throw new BusinessException(ReturnCodeEnum.ERROR);
@@ -104,7 +113,7 @@ public class OrderCancellationSupport {
      * @param orderSn 订单号
      * @param targetStatus 目标关闭状态
      */
-    private boolean doCancel(String orderSn, OrderStatusEnum targetStatus) {
+    private boolean doCancel(String orderSn, OrderStatusEnum targetStatus, Consumer<Order> afterCancelInTransaction) {
         Order order = orderMapper.selectOne(Wrappers.lambdaQuery(Order.class)
                 .eq(Order::getOrderSn, orderSn));
         if (order == null || !orderStateTransitionSupport.canTransition(order.getOrderStatus(), targetStatus)) {
@@ -121,6 +130,7 @@ public class OrderCancellationSupport {
 
         orderStatusLogService.recordSuccess(command);
         compensateCancelledOrder(order);
+        afterCancelInTransaction.accept(order);
         return true;
     }
 
