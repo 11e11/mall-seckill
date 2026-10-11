@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wayn.domain.api.outbox.entity.LocalMessage;
 import com.wayn.domain.api.outbox.enums.LocalMessageStatusEnum;
 import com.wayn.domain.api.outbox.mapper.LocalMessageMapper;
+import com.wayn.domain.api.outbox.service.LocalMessageTopics;
 import lombok.AllArgsConstructor;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -133,6 +134,18 @@ public class LocalMessageCompensationService {
                 .eq(LocalMessage::getStatus, LocalMessageStatusEnum.FAILED.getStatus()));
         LocalMessageCompensationMetric metric = new LocalMessageCompensationMetric();
         metric.setFailedCount(failedCount == null ? 0L : failedCount);
+        Long pendingCount = localMessageMapper.selectCount(Wrappers.lambdaQuery(LocalMessage.class)
+                .eq(LocalMessage::getTopic, LocalMessageTopics.SECKILL_REDIS_RELEASE)
+                .eq(LocalMessage::getStatus, LocalMessageStatusEnum.INIT.getStatus()));
+        metric.setSeckillRedisReleasePendingCount(pendingCount == null ? 0L : pendingCount);
+        LocalMessage oldest = localMessageMapper.selectOne(Wrappers.lambdaQuery(LocalMessage.class)
+                .eq(LocalMessage::getTopic, LocalMessageTopics.SECKILL_REDIS_RELEASE)
+                .eq(LocalMessage::getStatus, LocalMessageStatusEnum.INIT.getStatus())
+                .orderByAsc(LocalMessage::getCreateTime)
+                .last("limit 1"));
+        long ageSeconds = oldest == null || oldest.getCreateTime() == null ? 0L
+                : Math.max(0L, (System.currentTimeMillis() - oldest.getCreateTime().getTime()) / 1000L);
+        metric.setSeckillRedisReleaseOldestAgeSeconds(ageSeconds);
         return metric;
     }
 

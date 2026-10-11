@@ -144,7 +144,9 @@ class LocalMessageCompensationServiceTest {
         LocalMessageCompensationMetric metric = service.countFailedMessages();
 
         assertEquals(3L, metric.getFailedCount());
-        verify(mapper).selectCount(any());
+        assertEquals(3L, metric.getSeckillRedisReleasePendingCount());
+        assertEquals(0L, metric.getSeckillRedisReleaseOldestAgeSeconds());
+        verify(mapper, org.mockito.Mockito.times(2)).selectCount(any());
     }
 
     /**

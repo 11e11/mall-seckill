@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wayn.domain.api.outbox.entity.LocalMessage;
 import com.wayn.domain.api.outbox.enums.LocalMessageStatusEnum;
 import com.wayn.domain.api.outbox.mapper.LocalMessageMapper;
+import com.wayn.domain.api.outbox.service.LocalMessageTopics;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
@@ -120,6 +121,13 @@ public class LocalMessageService {
                 .eq(LocalMessage::getStatus, LocalMessageStatusEnum.INIT.getStatus()));
         LocalMessageFailureClassification classification = failureClassifier.classify(errorMessage);
         recordFailureCompensationLog(message, retryDecision, classification);
+        if (LocalMessageTopics.SECKILL_REDIS_RELEASE.equals(message.getTopic())
+                && (retryDecision.nextRetryCount() == MAX_RETRY_COUNT
+                || retryDecision.nextRetryCount() > MAX_RETRY_COUNT
+                && retryDecision.nextRetryCount() % 10 == 0)) {
+            log.error("秒杀 Redis 库存回补持续失败, messageKey={}, retryCount={}, error={}",
+                    message.getMessageKey(), retryDecision.nextRetryCount(), truncateError(errorMessage));
+        }
     }
 
     /**
@@ -131,8 +139,10 @@ public class LocalMessageService {
      * @return 重试决策
      */
     private RetryDecision buildRetryDecision(LocalMessage message, Date now) {
-        int nextRetryCount = defaultRetryCount(message.getRetryCount()) + 1;
+        int nextRetryCount = defaultRetryCount(message.getRetryCount()) == Integer.MAX_VALUE
+                ? Integer.MAX_VALUE : defaultRetryCount(message.getRetryCount()) + 1;
         Short nextStatus = nextRetryCount >= MAX_RETRY_COUNT
+                && !LocalMessageTopics.SECKILL_REDIS_RELEASE.equals(message.getTopic())
                 ? LocalMessageStatusEnum.FAILED.getStatus()
                 : LocalMessageStatusEnum.INIT.getStatus();
         Date nextRetryTime = new Date(now.getTime() + calculateRetryDelayMillis(nextRetryCount));
