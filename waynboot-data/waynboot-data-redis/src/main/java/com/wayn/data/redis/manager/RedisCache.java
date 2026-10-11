@@ -1,5 +1,7 @@
 package com.wayn.data.redis.manager;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.*;
@@ -20,6 +22,10 @@ import java.util.concurrent.TimeUnit;
 @AllArgsConstructor
 public class RedisCache {
     public RedisTemplate redisTemplate;
+    private final Cache<String, Object> localCache = Caffeine.newBuilder()
+            .maximumSize(10_000)
+            .expireAfterWrite(10, TimeUnit.SECONDS)
+            .build();
 
     /**
      * lua原子递增脚本
@@ -143,7 +149,8 @@ public class RedisCache {
 
     /**
      * 构建秒杀库存扣减脚本。
-     * 在单个 Lua 中完成 token 校验、用户幂等、库存扣减和结果占位，保证入口漏斗原子性。
+     * 在单个 Lua 中完成 SKU 入口限流、用户防刷限流、token 校验、用户幂等、库存扣减和结果占位，
+     * 将原先 3 次 Redis 往返合并为 1 次，降低高并发下的命令排队与超时面，同时保证漏斗过滤的原子性。
      *
      * @return Redis Lua 脚本
      */
@@ -153,13 +160,52 @@ public class RedisCache {
                 local userKey = KEYS[2]
                 local tokenKey = KEYS[3]
                 local resultKey = KEYS[4]
+                local skuBucketKey = KEYS[5]
+                local userBucketKey = KEYS[6]
                 local requestToken = ARGV[1]
                 local orderSn = ARGV[2]
                 local number = tonumber(ARGV[3])
                 local userTtl = tonumber(ARGV[4])
                 local resultTtl = tonumber(ARGV[5])
+                local skuCapacity = tonumber(ARGV[6])
+                local skuRefillRate = tonumber(ARGV[7])
+                local userCapacity = tonumber(ARGV[8])
+                local userRefillRate = tonumber(ARGV[9])
                 if requestToken == nil or requestToken == '' or orderSn == nil or orderSn == '' or number == nil or number <= 0 then
                     return -6
+                end
+                local function consumeBucket(key, capacity, refillRate, permits)
+                    local now = redis.call('time')
+                    local nowMillis = tonumber(now[1]) * 1000 + math.floor(tonumber(now[2]) / 1000)
+                    local bucket = redis.call('hmget', key, 'tokens', 'last_refill_time')
+                    local tokens = tonumber(bucket[1])
+                    local lastRefillTime = tonumber(bucket[2])
+                    if tokens == nil then
+                        tokens = capacity
+                    end
+                    if lastRefillTime == nil then
+                        lastRefillTime = nowMillis
+                    end
+                    local deltaMillis = math.max(0, nowMillis - lastRefillTime)
+                    local refillTokens = math.floor(deltaMillis * refillRate / 1000)
+                    if refillTokens > 0 then
+                        tokens = math.min(capacity, tokens + refillTokens)
+                        lastRefillTime = nowMillis
+                    end
+                    local allowed = tokens >= permits
+                    if allowed then
+                        tokens = tokens - permits
+                    end
+                    redis.call('hmset', key, 'tokens', tokens, 'last_refill_time', lastRefillTime)
+                    redis.call('pexpire', key, math.max(1000, math.ceil(capacity * 1000 / refillRate) * 2))
+                    return allowed
+                end
+                -- 限流在 Lua 内前置执行：任一令牌桶不足直接拒绝，不触碰 token、用户标记和库存
+                if not consumeBucket(skuBucketKey, skuCapacity, skuRefillRate, 1) then
+                    return -5
+                end
+                if not consumeBucket(userBucketKey, userCapacity, userRefillRate, 1) then
+                    return -5
                 end
                 local cachedToken = redis.call('get', tokenKey)
                 if not cachedToken or cachedToken ~= requestToken then
@@ -269,6 +315,22 @@ public class RedisCache {
     }
 
     /**
+     * 读取进程内 L1 缓存。仅由明确需要本地缓存的热点读链路调用。
+     */
+    public <T> T getLocalCacheObject(final String key) {
+        return (T) localCache.getIfPresent(key);
+    }
+
+    /**
+     * 写入进程内 L1 缓存。
+     */
+    public <T> void setLocalCacheObject(final String key, final T value) {
+        if (key != null && value != null) {
+            localCache.put(key, value);
+        }
+    }
+
+    /**
      * 按指定步长递增字符串数值缓存。
      * 用于库存快照这类计数器回补场景，依赖 Redis INCRBY 保证多实例并发释放时不会互相覆盖。
      *
@@ -312,6 +374,7 @@ public class RedisCache {
      * @param key
      */
     public boolean deleteObject(final String key) {
+        localCache.invalidate(key);
         return redisTemplate.delete(key);
     }
 
@@ -322,6 +385,7 @@ public class RedisCache {
      * @return
      */
     public long deleteObject(final Collection collection) {
+        localCache.invalidateAll(collection);
         return redisTemplate.delete(collection);
     }
 
@@ -380,6 +444,13 @@ public class RedisCache {
     public <T> long addCacheSetValue(final String key, final T value) {
         Long count = redisTemplate.opsForSet().add(key, value);
         return count == null ? 0 : count;
+    }
+
+    /**
+     * 判断元素是否属于 Redis Set。
+     */
+    public <T> boolean isCacheSetMember(final String key, final T value) {
+        return Boolean.TRUE.equals(redisTemplate.opsForSet().isMember(key, value));
     }
 
     /**
@@ -564,25 +635,36 @@ public class RedisCache {
     }
 
     /**
-     * 使用 Redis Lua 执行秒杀库存抢占。
+     * 使用 Redis Lua 执行秒杀库存抢占，入口限流与抢占在同一脚本内原子完成。
      *
      * @param stockKey 秒杀库存 Key
      * @param userKey 用户抢购标记 Key
      * @param tokenKey 秒杀访问 token Key
      * @param resultKey 秒杀结果 Key
+     * @param skuBucketKey SKU 总入口令牌桶 Key
+     * @param userBucketKey 用户维度令牌桶 Key
      * @param requestToken 请求 token
      * @param orderSn 订单号
      * @param number 抢购数量
      * @param userTtl 用户抢购标记过期秒数
      * @param resultTtl 结果过期秒数
-     * @return 1=成功，-1=库存不足，-2=库存未初始化，-3=重复抢购，-4=token非法，-6=参数非法
+     * @param skuCapacity SKU 桶容量
+     * @param skuRefillRate SKU 桶每秒补充令牌数
+     * @param userCapacity 用户桶容量
+     * @param userRefillRate 用户桶每秒补充令牌数
+     * @return 1=成功，-1=库存不足，-2=库存未初始化，-3=重复抢购，-4=token非法，-5=限流拒绝，-6=参数非法
      */
     public Long luaAcquireSeckillStock(String stockKey, String userKey, String tokenKey, String resultKey,
+                                       String skuBucketKey, String userBucketKey,
                                        String requestToken, String orderSn, Integer number,
-                                       Integer userTtl, Integer resultTtl) {
+                                       Integer userTtl, Integer resultTtl,
+                                       Integer skuCapacity, Integer skuRefillRate,
+                                       Integer userCapacity, Integer userRefillRate) {
         RedisScript<Long> redisScript = new DefaultRedisScript<>(buildLuaAcquireSeckillStockScript(), Long.class);
-        return (Long) redisTemplate.execute(redisScript, List.of(stockKey, userKey, tokenKey, resultKey),
-                requestToken, orderSn, number, userTtl, resultTtl);
+        return (Long) redisTemplate.execute(redisScript,
+                List.of(stockKey, userKey, tokenKey, resultKey, skuBucketKey, userBucketKey),
+                requestToken, orderSn, number, userTtl, resultTtl,
+                skuCapacity, skuRefillRate, userCapacity, userRefillRate);
     }
 
     /**

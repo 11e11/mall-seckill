@@ -9,7 +9,6 @@ import com.wayn.domain.api.promotion.request.SeckillSubmitReqVO;
 import com.wayn.domain.api.promotion.service.ISeckillActivityService;
 import com.wayn.domain.api.promotion.service.ISeckillSkuService;
 import com.wayn.domain.api.trade.service.IOrderActivityRelationService;
-import com.wayn.domain.promotion.support.seckill.SeckillRateLimiterSupport;
 import com.wayn.domain.promotion.support.seckill.SeckillRedisKeySupport;
 import com.wayn.util.exception.BusinessException;
 import com.wayn.util.util.OrderSnGenUtil;
@@ -23,6 +22,10 @@ import org.springframework.data.redis.serializer.SerializationException;
 import java.math.BigDecimal;
 import java.util.Date;
 
+import static com.wayn.domain.trade.support.seckill.SeckillOrderSubmitSupport.SKU_BUCKET_CAPACITY;
+import static com.wayn.domain.trade.support.seckill.SeckillOrderSubmitSupport.SKU_BUCKET_REFILL_RATE;
+import static com.wayn.domain.trade.support.seckill.SeckillOrderSubmitSupport.USER_BUCKET_CAPACITY;
+import static com.wayn.domain.trade.support.seckill.SeckillOrderSubmitSupport.USER_BUCKET_REFILL_RATE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -44,9 +47,6 @@ class SeckillOrderSubmitSupportTest {
 
     @Mock
     private ISeckillActivityService seckillActivityService;
-
-    @Mock
-    private SeckillRateLimiterSupport seckillRateLimiterSupport;
 
     @Mock
     private SeckillOrderMessageSupport seckillOrderMessageSupport;
@@ -77,7 +77,7 @@ class SeckillOrderSubmitSupportTest {
                 () -> seckillOrderSubmitSupport.submit(reqVO, 99L));
 
         assertEquals("请勿重复购买该活动商品", exception.getMsg());
-        verifyNoInteractions(seckillRateLimiterSupport, orderSnGenUtil, redisCache, seckillOrderMessageSupport);
+        verifyNoInteractions(orderSnGenUtil, redisCache, seckillOrderMessageSupport);
     }
 
     /**
@@ -91,14 +91,17 @@ class SeckillOrderSubmitSupportTest {
         when(seckillSkuService.getById(100L)).thenReturn(buildSku());
         when(seckillActivityService.getById(1L)).thenReturn(buildActivity());
         when(orderActivityRelationService.existsActiveSeckillPurchase(1L, 10L, 99L)).thenReturn(false);
-        when(seckillRateLimiterSupport.allowSubmit(100L, 99L)).thenReturn(true);
         when(orderSnGenUtil.generateOrderSn()).thenReturn("S202606060002");
         when(redisCache.luaAcquireSeckillStock(
                 eq(SeckillRedisKeySupport.stockKey(100L)),
                 eq(SeckillRedisKeySupport.userPurchaseKey(1L, 10L, 99L)),
                 eq(SeckillRedisKeySupport.tokenKey(100L, 99L)),
                 eq(SeckillRedisKeySupport.resultKey("S202606060002")),
-                eq("TOKEN"), eq("S202606060002"), eq(1), eq(3600), eq(3600))).thenReturn(1L);
+                eq(SeckillRedisKeySupport.skuBucketKey(100L)),
+                eq(SeckillRedisKeySupport.userBucketKey(100L, 99L)),
+                eq("TOKEN"), eq("S202606060002"), eq(1), eq(3600), eq(3600),
+                eq(SKU_BUCKET_CAPACITY), eq(SKU_BUCKET_REFILL_RATE),
+                eq(USER_BUCKET_CAPACITY), eq(USER_BUCKET_REFILL_RATE))).thenReturn(1L);
 
         seckillOrderSubmitSupport.submit(reqVO, 99L);
 
@@ -122,10 +125,11 @@ class SeckillOrderSubmitSupportTest {
         SeckillSubmitReqVO reqVO = buildSubmitRequest();
         when(seckillSkuService.getById(100L)).thenReturn(buildSku());
         when(seckillActivityService.getById(1L)).thenReturn(buildActivity());
-        when(seckillRateLimiterSupport.allowSubmit(100L, 99L)).thenReturn(true);
         when(orderSnGenUtil.generateOrderSn()).thenReturn("S202606060001");
         when(redisCache.luaAcquireSeckillStock(anyString(), anyString(), anyString(), anyString(),
-                eq("TOKEN"), eq("S202606060001"), eq(1), anyInt(), anyInt())).thenReturn(-3L);
+                anyString(), anyString(),
+                eq("TOKEN"), eq("S202606060001"), eq(1), anyInt(), anyInt(),
+                anyInt(), anyInt(), anyInt(), anyInt())).thenReturn(-3L);
         when(redisCache.getCacheObject(SeckillRedisKeySupport.userPurchaseKey(1L, 10L, 99L)))
                 .thenThrow(new SerializationException("bad redis value"));
 

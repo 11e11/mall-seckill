@@ -11,7 +11,6 @@ import com.wayn.domain.api.promotion.response.SeckillSubmitResVO;
 import com.wayn.domain.api.promotion.service.ISeckillActivityService;
 import com.wayn.domain.api.promotion.service.ISeckillSkuService;
 import com.wayn.domain.api.trade.service.IOrderActivityRelationService;
-import com.wayn.domain.promotion.support.seckill.SeckillRateLimiterSupport;
 import com.wayn.domain.promotion.support.seckill.SeckillRedisKeySupport;
 import com.wayn.util.enums.ReturnCodeEnum;
 import com.wayn.util.exception.BusinessException;
@@ -38,10 +37,16 @@ public class SeckillOrderSubmitSupport {
     private static final long ACQUIRE_SUCCESS = 1L;
     private static final int RESULT_TTL_SECONDS = 3600;
 
+    /** SKU 总入口令牌桶：容量与每秒补充速率，随抢占 Lua 一次执行。 */
+    static final int SKU_BUCKET_CAPACITY = 200;
+    static final int SKU_BUCKET_REFILL_RATE = 200;
+    /** 用户维度令牌桶：容量与每秒补充速率，防单用户刷提交。 */
+    static final int USER_BUCKET_CAPACITY = 3;
+    static final int USER_BUCKET_REFILL_RATE = 3;
+
     private final ISeckillSkuService seckillSkuService;
     private final ISeckillActivityService seckillActivityService;
     private final IOrderActivityRelationService orderActivityRelationService;
-    private final SeckillRateLimiterSupport seckillRateLimiterSupport;
     private final SeckillOrderMessageSupport seckillOrderMessageSupport;
     private final RedisCache redisCache;
     private final OrderSnGenUtil orderSnGenUtil;
@@ -60,9 +65,6 @@ public class SeckillOrderSubmitSupport {
         Integer number = reqVO.getNumber();
         validateLimitCount(sku, number);
         validateUserPurchaseLimit(sku, userId);
-        if (!seckillRateLimiterSupport.allowSubmit(reqVO.getActivitySkuId(), userId)) {
-            throw new BusinessException(ReturnCodeEnum.ORDER_SUBMIT_ERROR, "请求过于频繁，请稍后重试");
-        }
 
         String orderSn = orderSnGenUtil.generateOrderSn();
         Long acquireResult = acquireRedisStock(reqVO, sku, userId, orderSn, number);
@@ -149,6 +151,7 @@ public class SeckillOrderSubmitSupport {
 
     /**
      * 使用 Redis Lua 原子抢占秒杀库存。
+     * 入口限流（SKU 桶 + 用户桶）与 token 校验、幂等、扣减合并为一次脚本调用，减少高并发下的 Redis 往返。
      *
      * @param reqVO 秒杀提交请求
      * @param sku 活动 SKU
@@ -163,11 +166,17 @@ public class SeckillOrderSubmitSupport {
                 SeckillRedisKeySupport.userPurchaseKey(sku.getActivityId(), sku.getGoodsId(), userId),
                 SeckillRedisKeySupport.tokenKey(sku.getId(), userId),
                 SeckillRedisKeySupport.resultKey(orderSn),
+                SeckillRedisKeySupport.skuBucketKey(sku.getId()),
+                SeckillRedisKeySupport.userBucketKey(sku.getId(), userId),
                 reqVO.getSeckillToken(),
                 orderSn,
                 number,
                 RESULT_TTL_SECONDS,
-                RESULT_TTL_SECONDS);
+                RESULT_TTL_SECONDS,
+                SKU_BUCKET_CAPACITY,
+                SKU_BUCKET_REFILL_RATE,
+                USER_BUCKET_CAPACITY,
+                USER_BUCKET_REFILL_RATE);
     }
 
     /**
@@ -190,6 +199,7 @@ public class SeckillOrderSubmitSupport {
             case -2 -> "秒杀库存未预热";
             case -3 -> "请勿重复抢购";
             case -4 -> "秒杀 token 已失效";
+            case -5 -> "请求过于频繁，请稍后重试";
             default -> "秒杀请求失败";
         };
         throw new BusinessException(ReturnCodeEnum.ORDER_SUBMIT_ERROR, message);

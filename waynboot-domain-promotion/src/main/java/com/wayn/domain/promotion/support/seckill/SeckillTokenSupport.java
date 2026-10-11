@@ -15,7 +15,7 @@ import java.util.UUID;
 @AllArgsConstructor
 public class SeckillTokenSupport {
 
-    static final int TOKEN_TTL_SECONDS = 60;
+    static final int TOKEN_TTL_SECONDS = 60; // 压测结论（竞争模型 4000 用户档）：有效期必须大于竞争排队下的 P99 领到用间隔，60s 覆盖实测 13s+
 
     private final RedisCache redisCache;
 
