@@ -3,7 +3,6 @@ package com.wayn.domain.trade.support.seckill;
 import com.wayn.domain.api.trade.entity.OrderActivityRelation;
 import com.wayn.domain.api.trade.entity.Order;
 import com.wayn.domain.api.trade.service.IOrderActivityRelationService;
-import com.wayn.domain.promotion.support.seckill.SeckillResultSupport;
 import com.wayn.domain.trade.support.order.OrderCancellationSupport;
 import com.wayn.util.enums.OrderStatusEnum;
 import org.junit.jupiter.api.Test;
@@ -34,9 +33,6 @@ class SeckillOrderTimeoutSupportTest {
     @Mock
     private SeckillInventoryReleaseSupport seckillInventoryReleaseSupport;
 
-    @Mock
-    private SeckillResultSupport seckillResultSupport;
-
     @InjectMocks
     private SeckillOrderTimeoutSupport seckillOrderTimeoutSupport;
 
@@ -59,7 +55,6 @@ class SeckillOrderTimeoutSupportTest {
         seckillOrderTimeoutSupport.closeUnpaidOrder("S001");
 
         verify(seckillInventoryReleaseSupport).releaseTimeoutStock(relation, "S001");
-        verify(seckillResultSupport).markClosed("S001");
     }
 
     /**

@@ -184,6 +184,32 @@ public class RedisCache {
     }
 
     /**
+     * 回补秒杀入口库存、清除用户抢购标记并记录操作编号，三步在 Redis 内原子执行。
+     * 标记无过期时间，活动归档并确认所有任务完成后才可清理。
+     */
+    public static String buildLuaReleaseSeckillStockScript() {
+        return """
+                local stockKey = KEYS[1]
+                local userKey = KEYS[2]
+                local markerKey = KEYS[3]
+                local number = tonumber(ARGV[1])
+                if not number or number <= 0 then
+                    return -2
+                end
+                if redis.call('exists', markerKey) == 1 then
+                    return 2
+                end
+                if redis.call('exists', stockKey) == 0 then
+                    return -1
+                end
+                redis.call('incrby', stockKey, number)
+                redis.call('del', userKey)
+                redis.call('set', markerKey, '1')
+                return 1
+                """;
+    }
+
+    /**
      * 缓存基本的对象，Integer、String、实体类等
      *
      * @param key   缓存的键值
@@ -583,6 +609,14 @@ public class RedisCache {
         RedisScript<Long> redisScript = new DefaultRedisScript<>(buildLuaAcquireSeckillStockScript(), Long.class);
         return (Long) redisTemplate.execute(redisScript, List.of(stockKey, userKey, tokenKey, resultKey),
                 requestToken, orderSn, number, userTtl, resultTtl);
+    }
+
+    /**
+     * 幂等回补秒杀库存。1=首次完成，2=已完成，-1=库存 Key 缺失，-2=数量非法。
+     */
+    public Long luaReleaseSeckillStock(String stockKey, String userKey, String markerKey, Integer number) {
+        RedisScript<Long> script = new DefaultRedisScript<>(buildLuaReleaseSeckillStockScript(), Long.class);
+        return (Long) redisTemplate.execute(script, List.of(stockKey, userKey, markerKey), number);
     }
 
     /**
