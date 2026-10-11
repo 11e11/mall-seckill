@@ -2,7 +2,6 @@ package com.wayn.domain.trade.support.seckill;
 
 import com.wayn.domain.api.trade.entity.OrderActivityRelation;
 import com.wayn.domain.api.trade.service.IOrderActivityRelationService;
-import com.wayn.domain.promotion.support.seckill.SeckillResultSupport;
 import com.wayn.domain.trade.support.order.OrderCancellationSupport;
 import com.wayn.util.enums.OrderStatusEnum;
 import lombok.AllArgsConstructor;
@@ -19,7 +18,6 @@ public class SeckillOrderTimeoutSupport {
     private final IOrderActivityRelationService orderActivityRelationService;
     private final OrderCancellationSupport orderCancellationSupport;
     private final SeckillInventoryReleaseSupport seckillInventoryReleaseSupport;
-    private final SeckillResultSupport seckillResultSupport;
 
     /**
      * 关闭超时未支付秒杀订单。
@@ -31,10 +29,7 @@ public class SeckillOrderTimeoutSupport {
         if (relation == null) {
             return;
         }
-        boolean cancelled = orderCancellationSupport.cancel(orderSn, OrderStatusEnum.STATUS_AUTO_CANCEL);
-        if (cancelled) {
-            seckillInventoryReleaseSupport.releaseTimeoutStock(relation, orderSn);
-            seckillResultSupport.markClosed(orderSn);
-        }
+        orderCancellationSupport.cancel(orderSn, OrderStatusEnum.STATUS_AUTO_CANCEL,
+                order -> seckillInventoryReleaseSupport.releaseTimeoutStock(relation, orderSn));
     }
 }

@@ -1,8 +1,8 @@
 package com.wayn.domain.trade.support.seckill;
 
 import com.wayn.domain.api.trade.entity.OrderActivityRelation;
+import com.wayn.domain.api.trade.entity.Order;
 import com.wayn.domain.api.trade.service.IOrderActivityRelationService;
-import com.wayn.domain.promotion.support.seckill.SeckillResultSupport;
 import com.wayn.domain.trade.support.order.OrderCancellationSupport;
 import com.wayn.util.enums.OrderStatusEnum;
 import org.junit.jupiter.api.Test;
@@ -14,6 +14,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import java.util.function.Consumer;
 
 /**
  * 秒杀订单超时释放测试。
@@ -30,9 +33,6 @@ class SeckillOrderTimeoutSupportTest {
     @Mock
     private SeckillInventoryReleaseSupport seckillInventoryReleaseSupport;
 
-    @Mock
-    private SeckillResultSupport seckillResultSupport;
-
     @InjectMocks
     private SeckillOrderTimeoutSupport seckillOrderTimeoutSupport;
 
@@ -46,12 +46,15 @@ class SeckillOrderTimeoutSupportTest {
         relation.setActivitySkuId(10L);
         relation.setUserId(99L);
         when(orderActivityRelationService.getByOrderSn("S001")).thenReturn(relation);
-        when(orderCancellationSupport.cancel("S001", OrderStatusEnum.STATUS_AUTO_CANCEL)).thenReturn(true);
+        when(orderCancellationSupport.cancel(eq("S001"), eq(OrderStatusEnum.STATUS_AUTO_CANCEL), any()))
+                .thenAnswer(invocation -> {
+                    invocation.<Consumer<Order>>getArgument(2).accept(new Order());
+                    return true;
+                });
 
         seckillOrderTimeoutSupport.closeUnpaidOrder("S001");
 
         verify(seckillInventoryReleaseSupport).releaseTimeoutStock(relation, "S001");
-        verify(seckillResultSupport).markClosed("S001");
     }
 
     /**
@@ -62,7 +65,7 @@ class SeckillOrderTimeoutSupportTest {
         OrderActivityRelation relation = new OrderActivityRelation();
         relation.setOrderSn("S001");
         when(orderActivityRelationService.getByOrderSn("S001")).thenReturn(relation);
-        when(orderCancellationSupport.cancel("S001", OrderStatusEnum.STATUS_AUTO_CANCEL)).thenReturn(false);
+        when(orderCancellationSupport.cancel(eq("S001"), eq(OrderStatusEnum.STATUS_AUTO_CANCEL), any())).thenReturn(false);
 
         seckillOrderTimeoutSupport.closeUnpaidOrder("S001");
 

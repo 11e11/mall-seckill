@@ -58,6 +58,11 @@ public final class SeckillRedisKeySupport {
         return SECKILL_PREFIX + "stock:" + activitySkuId;
     }
 
+    /** 生成超时释放操作的 Redis 幂等标记 Key。 */
+    public static String releaseMarkerKey(String orderSn, Long activitySkuId) {
+        return SECKILL_PREFIX + "release:" + orderSn + ":" + activitySkuId;
+    }
+
     /**
      * 生成用户抢购成功标记 Key。
      *

@@ -17,6 +17,7 @@ public final class LocalMessageTopics {
     public static final String ORDER_PAID_POST_ACTION = "ORDER_PAID_POST_ACTION";
 
     public static final String SECKILL_ORDER_SUBMIT = "SECKILL_ORDER_SUBMIT";
+    public static final String SECKILL_REDIS_RELEASE = "SECKILL_REDIS_RELEASE";
 
     /**
      * 工具类禁止实例化。

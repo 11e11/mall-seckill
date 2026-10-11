@@ -3,6 +3,7 @@ package com.wayn.domain.trade.outbox;
 import com.wayn.domain.api.outbox.entity.LocalMessage;
 import com.wayn.domain.api.outbox.enums.LocalMessageStatusEnum;
 import com.wayn.domain.api.outbox.mapper.LocalMessageMapper;
+import com.wayn.domain.api.outbox.service.LocalMessageTopics;
 import com.wayn.domain.api.common.MybatisPlusTableInfoTestHelper;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -164,6 +165,25 @@ class LocalMessageServiceTest {
         ArgumentCaptor<Boolean> deadLetterCaptor = ArgumentCaptor.forClass(Boolean.class);
         verify(logService).recordFailure(any(), any(), deadLetterCaptor.capture(), any());
         assertEquals(Boolean.TRUE, deadLetterCaptor.getValue());
+    }
+
+    /** 秒杀 Redis 回补达到普通消息的重试上限后仍保留在自动处理队列。 */
+    @Test
+    void seckillRedisReleaseKeepsRetryingAfterFiveFailures() {
+        LocalMessageMapper mapper = mock(LocalMessageMapper.class);
+        LocalMessageCompensationLogService logService = mock(LocalMessageCompensationLogService.class);
+        LocalMessageService service = new LocalMessageService(mapper, new LocalMessageFailureClassifier(), logService);
+        LocalMessage message = new LocalMessage();
+        message.setId(1L);
+        message.setMessageKey("SECKILL_REDIS_RELEASE:S001:10");
+        message.setTopic(LocalMessageTopics.SECKILL_REDIS_RELEASE);
+        message.setRetryCount(4);
+
+        service.markFailed(message, "redis down");
+
+        ArgumentCaptor<Boolean> deadLetterCaptor = ArgumentCaptor.forClass(Boolean.class);
+        verify(logService).recordFailure(any(), any(), deadLetterCaptor.capture(), any());
+        assertEquals(Boolean.FALSE, deadLetterCaptor.getValue());
     }
 
 }

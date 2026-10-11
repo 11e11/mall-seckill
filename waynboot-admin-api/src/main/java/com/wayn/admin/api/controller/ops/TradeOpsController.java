@@ -91,6 +91,8 @@ public class TradeOpsController {
         LocalMessageCompensationMetric metric = localMessageCompensationService.countFailedMessages();
         LocalMessageCompensationMetricResVO resVO = new LocalMessageCompensationMetricResVO();
         resVO.setFailedCount(metric.getFailedCount());
+        resVO.setSeckillRedisReleasePendingCount(metric.getSeckillRedisReleasePendingCount());
+        resVO.setSeckillRedisReleaseOldestAgeSeconds(metric.getSeckillRedisReleaseOldestAgeSeconds());
         log.info("查询本地消息补偿指标完成, failedCount={}", metric.getFailedCount());
         return R.success(resVO);
     }
