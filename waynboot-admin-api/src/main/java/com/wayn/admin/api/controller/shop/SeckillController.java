@@ -2,16 +2,13 @@ package com.wayn.admin.api.controller.shop;
 
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.wayn.common.base.controller.BaseController;
 import com.wayn.domain.api.promotion.entity.SeckillActivity;
-import com.wayn.domain.api.promotion.entity.SeckillSku;
 import com.wayn.domain.api.promotion.request.SeckillActivitySaveReqVO;
 import com.wayn.domain.api.promotion.response.SeckillActivityDetailResVO;
 import com.wayn.domain.api.promotion.response.SeckillActivityListItemResVO;
 import com.wayn.domain.api.promotion.service.ISeckillActivityService;
-import com.wayn.domain.api.promotion.service.ISeckillSkuService;
 import com.wayn.util.util.R;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +29,6 @@ import java.util.List;
 public class SeckillController extends BaseController {
 
     private final ISeckillActivityService seckillActivityService;
-    private final ISeckillSkuService seckillSkuService;
 
     /**
      * 分页查询秒杀活动。
@@ -146,10 +142,7 @@ public class SeckillController extends BaseController {
     @PreAuthorize("@ss.hasPermi('shop:seckill:delete')")
     @DeleteMapping("{ids}")
     public R<Boolean> delete(@PathVariable List<Long> ids) {
-        boolean removed = seckillActivityService.removeByIds(ids);
-        if (removed) {
-            seckillSkuService.remove(Wrappers.lambdaQuery(SeckillSku.class).in(SeckillSku::getActivityId, ids));
-        }
+        boolean removed = seckillActivityService.deleteActivities(ids);
         log.info("后台删除秒杀活动完成, ids={}, result={}", ids, removed);
         return R.result(removed);
     }

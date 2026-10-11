@@ -12,6 +12,7 @@ import com.wayn.domain.api.promotion.mapper.SeckillActivityMapper;
 import com.wayn.domain.api.promotion.request.SeckillActivitySaveReqVO;
 import com.wayn.domain.api.promotion.response.SeckillSkuResVO;
 import com.wayn.domain.api.promotion.service.ISeckillSkuService;
+import com.wayn.domain.promotion.support.seckill.SeckillActivityDetailCacheSupport;
 import com.wayn.util.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -53,6 +54,9 @@ class SeckillActivityServiceImplTest {
 
     @Mock
     private SeckillActivityMapper seckillActivityMapper;
+
+    @Mock
+    private SeckillActivityDetailCacheSupport detailCacheSupport;
 
     /**
      * 同一活动下活动 SKU 以 productId 作为唯一维度，重复货品必须在业务层拦截，避免落到数据库唯一键异常。
@@ -111,7 +115,8 @@ class SeckillActivityServiceImplTest {
      * @return 秒杀活动服务
      */
     private SeckillActivityServiceImpl buildService() {
-        return new SeckillActivityServiceImpl(seckillSkuService, redisCache, goodsService, goodsProductService);
+        return new SeckillActivityServiceImpl(seckillSkuService, redisCache, goodsService, goodsProductService,
+                detailCacheSupport);
     }
 
     private SeckillActivitySaveReqVO buildRequestWithDuplicateProductId() {

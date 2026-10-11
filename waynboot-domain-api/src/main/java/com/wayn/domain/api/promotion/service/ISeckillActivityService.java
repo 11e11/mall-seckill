@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.wayn.domain.api.promotion.entity.SeckillActivity;
 import com.wayn.domain.api.promotion.request.SeckillActivitySaveReqVO;
 import com.wayn.domain.api.promotion.response.SeckillActivityDetailResVO;
+import java.util.List;
 
 /**
  * 秒杀活动服务。
@@ -56,6 +57,9 @@ public interface ISeckillActivityService extends IService<SeckillActivity> {
      * @param activityId 活动 ID
      */
     void offline(Long activityId);
+
+    /** 删除活动及其 SKU，并在提交后失效详情缓存。 */
+    boolean deleteActivities(List<Long> activityIds);
 
     /**
      * 预热活动 SKU 库存到 Redis。

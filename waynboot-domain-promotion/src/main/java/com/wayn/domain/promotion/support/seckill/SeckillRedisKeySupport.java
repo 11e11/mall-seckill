@@ -91,4 +91,14 @@ public final class SeckillRedisKeySupport {
     public static String resultKey(String orderSn) {
         return SECKILL_PREFIX + "result:" + orderSn;
     }
+
+    /**
+     * 生成秒杀活动详情缓存 Key。
+     *
+     * @param activityId 活动 ID
+     * @return Redis Key
+     */
+    public static String activityDetailKey(Long activityId) {
+        return SECKILL_PREFIX + "activity_detail:" + activityId;
+    }
 }

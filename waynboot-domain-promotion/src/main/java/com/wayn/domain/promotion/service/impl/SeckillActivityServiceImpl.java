@@ -20,6 +20,7 @@ import com.wayn.domain.api.promotion.response.SeckillActivityListItemResVO;
 import com.wayn.domain.api.promotion.response.SeckillSkuResVO;
 import com.wayn.domain.api.promotion.service.ISeckillActivityService;
 import com.wayn.domain.api.promotion.service.ISeckillSkuService;
+import com.wayn.domain.promotion.support.seckill.SeckillActivityDetailCacheSupport;
 import com.wayn.domain.promotion.support.seckill.SeckillRedisKeySupport;
 import com.wayn.util.enums.ReturnCodeEnum;
 import com.wayn.util.exception.BusinessException;
@@ -51,6 +52,7 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
     private final RedisCache redisCache;
     private final IGoodsService goodsService;
     private final IGoodsProductService goodsProductService;
+    private final SeckillActivityDetailCacheSupport detailCacheSupport;
 
     /**
      * 分页查询秒杀活动。
@@ -108,10 +110,13 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
         // 活动 SKU 使用 activity_id + product_id 唯一键，逻辑删除会继续占用唯一键，重建 SKU 列表必须物理删除旧记录。
         seckillSkuService.physicalDeleteByActivityId(activity.getId());
         saveSkuList(activity.getId(), reqVO.getSkuList(), new Date());
+        // Cache Aside：数据库提交后再失效两级缓存，避免回源读到提交前的旧值。
+        detailCacheSupport.evictAfterCommit(activity.getId());
     }
 
     /**
      * 查询活动详情。
+     * 热点活动详情读多写少，按 L1(Caffeine) -> L2(Redis) -> DB 读取；开关关闭时直接回源数据库，用于压测对照和降级。
      *
      * @param activityId 活动 ID
      * @return 活动详情
@@ -121,6 +126,34 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
         if (activityId == null) {
             throw new BusinessException(ReturnCodeEnum.PARAMETER_MISS_ERROR);
         }
+        String cacheKey = SeckillRedisKeySupport.activityDetailKey(activityId);
+        if (detailCacheSupport.isEnabled()) {
+            SeckillActivityDetailResVO localCached = detailCacheSupport.getLocal(cacheKey);
+            if (localCached != null) {
+                return localCached;
+            }
+            SeckillActivityDetailResVO cached = detailCacheSupport.getRedis(cacheKey);
+            if (cached != null) {
+                detailCacheSupport.putLocal(cacheKey, cached);
+                return cached;
+            }
+        }
+        SeckillActivityDetailResVO resVO = loadDetailFromDb(activityId);
+        if (detailCacheSupport.isEnabled()) {
+            detailCacheSupport.putRedis(cacheKey, resVO);
+            detailCacheSupport.putLocal(cacheKey, resVO);
+        }
+        return resVO;
+    }
+
+    /**
+     * 回源数据库组装活动详情。
+     * 活动主表、SKU 列表与商品展示信息分三段查询，名额与库存的实时状态以报名链路的 Redis 漏斗和数据库为准，详情只做展示。
+     *
+     * @param activityId 活动 ID
+     * @return 活动详情
+     */
+    private SeckillActivityDetailResVO loadDetailFromDb(Long activityId) {
         SeckillActivity activity = getById(activityId);
         if (activity == null) {
             throw new BusinessException(ReturnCodeEnum.PARAMETER_ERROR, "秒杀活动不存在");
@@ -214,6 +247,7 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
      * @param activityId 活动 ID
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void publish(Long activityId) {
         updateStatus(activityId, SeckillActivityStatusEnum.PUBLISHED);
     }
@@ -224,8 +258,26 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
      * @param activityId 活动 ID
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void offline(Long activityId) {
         updateStatus(activityId, SeckillActivityStatusEnum.OFFLINE);
+    }
+
+    /** 删除活动和活动 SKU 后失效详情缓存。 */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean deleteActivities(List<Long> activityIds) {
+        if (CollectionUtils.isEmpty(activityIds)) {
+            return false;
+        }
+        boolean removed = removeByIds(activityIds);
+        if (!removed) {
+            return false;
+        }
+        seckillSkuService.remove(Wrappers.lambdaQuery(SeckillSku.class)
+                .in(SeckillSku::getActivityId, activityIds));
+        activityIds.forEach(detailCacheSupport::evictAfterCommit);
+        return true;
     }
 
     /**
@@ -357,6 +409,8 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
                 .set(SeckillSku::getUpdateTime, new Date())
                 .eq(SeckillSku::getActivityId, activityId)
                 .update();
+        // 上下架改变活动可见状态，提交后失效详情缓存。
+        detailCacheSupport.evictAfterCommit(activityId);
     }
 
     /**
