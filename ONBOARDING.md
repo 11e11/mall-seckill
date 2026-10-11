@@ -146,7 +146,7 @@ Support 类是核心。每个 Support 类只负责一个切面，例如：
 - `OrderValidationSupport`（trade）— 只做校验，不写库
 - `OrderStockSupport`（inventory）— 只操作库存，不管订单状态
 - `OrderStateTransitionSupport`（trade）— 只管状态流转规则，不写库
-- `OrderCancellationSupport`（trade）— 只做取消补偿，组合订单状态和库存能力
+- `OrderCancellationSupport`（trade）— 只做取消补偿，使用 Redisson 订单锁串行化同一订单的取消操作，并组合订单状态和库存能力
 
 ---
 

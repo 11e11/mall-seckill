@@ -46,6 +46,10 @@
             <artifactId>waynboot-data-redis</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.wayn</groupId>
             <artifactId>waynboot-message-core</artifactId>
             <exclusions>
